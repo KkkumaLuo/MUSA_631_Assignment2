@@ -1,0 +1,216 @@
+---
+title: "The Uneven Cost of Heat: How Boston’s Built Environment and Socioeconomic Divide Amplify Extreme Heat Vulnerability"
+author: "Kuma Luo"
+date: "`r Sys.Date()`" 
+output:
+  html_document:
+    toc: true 
+    theme: cerulean 
+    number_sections: true
+    toc_float: true
+    toc_depth: 2 
+    code_folding: hide
+bibliography: "references.bib"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidycensus)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+```
+
+# Introduction
+
+Extreme heat waves are becoming more frequent in urban areas, and their impact is not evenly distributed. In cities like Boston, urban design and socio-economic factors shape how much heat different communities experience. This report analyzes how Boston's built demographic and wealth inequalities intersect to amplify extreme heat vulnerability in certain neighborhoods, particularly in low-income areas with poor infrastructure.
+
+# Data Sources
+
+**Socio-demographic Data**: American Community Survey (ACS) 5-year estimates on income, housing types, and racial composition. In addition, the spatial data from [@boston2023climateready].
+
+
+# Loading the Census Data
+First, we’ll gather demographic data for Boston using the tidycensus package. We will focus on variables related to income, housing type, and race.
+
+
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE, eval=FALSE}
+variables <- c(
+  median_income = "B19013_001",
+  race_white = "B02001_002",
+  race_black = "B02001_003",
+  housing_own = "B25003_002"
+)
+
+boston_data <- get_acs(
+  geography = "tract",
+  variables = variables,
+  state = "MA",
+  county = "Suffolk",
+  year = 2019,
+  geometry = TRUE
+)
+
+head(boston_data)
+
+```
+```{r, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+variables <- c(
+  median_income = "B19013_001",
+  race_white = "B02001_002",
+  race_black = "B02001_003",
+  housing_own = "B25003_002"
+)
+
+boston_data <- get_acs(
+  geography = "tract",
+  variables = variables,
+  state = "MA",
+  county = "Suffolk",
+  year = 2019,
+  geometry = TRUE
+)
+
+head(boston_data)
+
+```
+
+# Method
+## Mapping Heat Vulnerability
+We will create maps showing heat vulnerability in different Boston neighborhoods. First, we'll map median income and racial composition to visualize which neighborhoods are more vulnerable based on socio-economic factors.
+```{r}
+ggplot(boston_data %>% filter(variable == "median_income")) +
+  geom_sf(aes(fill = estimate)) +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(
+    title = "Median Income by Census Tract in Boston",
+    fill = "Median Income"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(boston_data %>% filter(variable == "race_black")) +
+  geom_sf(aes(fill = estimate)) +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(
+    title = "Black Population by Census Tract in Boston",
+    fill = "Population"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+vulnerability_data <- st_read("Climate_Ready_Boston_Social_Vulnerability.geojson")
+
+head(vulnerability_data)
+```
+
+```{r}
+ggplot(vulnerability_data) +
+  geom_sf(aes(fill = TotChild)) + 
+  scale_fill_viridis_c(option = "plasma") +
+  labs(
+    title = "Distribution of Children in Boston (TotChild)",
+    fill = "Total Children"
+  ) +
+  theme_minimal()
+```
+```{r}
+ggplot(vulnerability_data) +
+  geom_sf(aes(fill = OlderAdult)) + 
+  scale_fill_viridis_c(option = "plasma") +
+  labs(
+    title = "Distribution of Children in Boston (TotChild)",
+    fill = "Total Children"
+  ) +
+  theme_minimal()
+```
+
+Now, we are going to normalize the data to calculate the vulnerability index.
+```{r}
+normalize <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+vulnerability_data <- vulnerability_data %>%
+  mutate(
+    norm_disability = normalize(TotDis),
+    norm_children = normalize(TotChild),
+    norm_older_adults = normalize(OlderAdult),
+    norm_low_income = normalize(Low_to_No),
+    norm_lep = normalize(LEP),
+    norm_poc = normalize(POC2),
+    norm_median_illness = normalize(MedIllnes)
+  )
+```
+
+Create the Vulnerability Index: we will use an equal-weight approach or assign weights based on perceived importance of each factor.
+```{r}
+vulnerability_data <- vulnerability_data %>%
+  mutate(
+    vulnerability_index = (
+      norm_disability +
+      norm_children +
+      norm_older_adults +
+      norm_low_income +
+      norm_lep +
+      norm_poc +
+      norm_median_illness
+    ) / 7 
+  )
+```
+
+### Visualize the Data
+```{r}
+ggplot(vulnerability_data) +
+  geom_sf(aes(fill = vulnerability_index)) +
+  scale_fill_viridis_c(option = "magma") +
+  labs(
+    title = "Social Vulnerability Index in Boston",
+    fill = "Vulnerability Index"
+  ) +
+  theme_minimal()
+```
+
+# Findings
+## Clusters of High Vulnerability
+
+1. There are clusters of high vulnerability (dark purple areas) in neighborhoods south and west of downtown Boston. These neighborhoods could include historically disadvantaged communities or areas with lower income, older populations, and higher proportions of non-English speakers.
+2. The areas in southern Boston (such as Roxbury or Dorchester) appear to have higher vulnerability scores, which aligns with known socio-economic challenges in these neighborhoods.
+
+## Areas of Low Vulnerability
+
+1. Central Boston, particularly downtown and Back Bay areas, shows lower vulnerability (light yellow), suggesting these neighborhoods have higher incomes, better housing infrastructure, or access to cooling resources.
+2. These lower vulnerability areas are often associated with wealthier communities that tend to have more green spaces, access to air conditioning, and newer, better-insulated housing.
+
+# Policy Implication
+1. Based on these findings, Boston could focus on deploying more cooling resources (such as air-conditioned community centers or more green infrastructure) in the high-vulnerability neighborhoods identified in southern and northeastern Boston.
+
+2. The neighborhoods could benefit from increased tree canopy and reduced impervious surfaces (e.g., parking lots) to mitigate the heat island effect, which would help reduce vulnerability during heat waves.
+
+3. Vulnerable areas with high numbers of elderly and non-English speakers could benefit from focused outreach programs during extreme heat events to ensure they have adequate access to cooling resources and health services.
+
+# Reflection
+**Aiming for**: I aimed to create a data-driven story that highlights how Boston's socio-economic divide amplify extreme heat vulnerability. My focus was on combining spatial analysis and demographic data to offer a comprehensive view of how different neighborhoods experience heat waves.
+
+**What went well**: The integration of spatial data using sf and the visualization of heat vulnerability across Boston’s neighborhoods worked as planned. The use of ggplot2 to map socio-demographic factors (income, age) and vulnerability was effective in illustrating how certain areas are more affected by extreme heat. I’m satisfied with how the thematic structure helped guide the narrative from data to findings and policy implications.
+
+**Challenges**: There were some challenges in working with the large and complex geojson file for social vulnerability. Processing and cleaning this data to match my intended analysis took longer than expected. Additionally, balancing different demographic variables to create a fair vulnerability index required thoughtful normalization, and deciding on the weights for each factor felt subjective.
+
+**What I learned**: This project deepened my understanding of spatial data analysis and how to effectively communicate complex relationships between environmental and socio-economic data. I also learned how to normalize data for creating indices and improved my skills in working with geojson files in R.
+
+**New attempts**: I tried using a vulnerability index composed of several normalized variables, which was new for me. Also, experimenting with different color palettes in ggplot2 to ensure accessibility and visual clarity was a valuable exercise.
+
+**If I had more time**:
+
+First of all, I will align the census map and the vulnerability map. It is obvious that they have different space range of Boston, but unfortunately, I have no time to fix it.
+Then, I would improve the normalization and weighting process for the vulnerability index, perhaps by testing different weighting schemes or using machine learning models to identify key predictors of vulnerability.
+I’d like to incorporate more real-time heat data, such as temperature readings from sensors placed around the city, and compare them to my vulnerability index to see how well they align.
+Adding interactive features with leaflet could make the data story more engaging, allowing readers to explore neighborhoods in more detail.
+I would also explore statistical significance testing for differences in vulnerability between neighborhoods to add rigor to the findings.
+
+
+### References
+
